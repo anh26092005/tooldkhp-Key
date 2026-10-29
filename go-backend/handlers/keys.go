@@ -325,11 +325,10 @@ func PostAdminGenerateKey(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Mỗi lần chỉ tạo tối đa 500 key"})
 		return
 	}
-	if req.Binding != "student" && req.Binding != "device" {
-		req.Binding = "device"
-	}
 	if req.KeyType == "shared" {
-		req.Binding = "student"
+		req.Binding = "shared"
+	} else if req.Binding != "student" && req.Binding != "device" {
+		req.Binding = "device"
 	}
 
 	allKeys := readKeysFromFile()

@@ -490,7 +490,7 @@
             const result = await apiCall('GET', '/admin/keys');
             if (!result.success) return showToast(result.message || 'Không thể tải key', 'error');
             const headers = ['Key','Loại','Ràng buộc','MSSV','Thiết bị','Trạng thái','Kích hoạt lúc','Hết hạn','Còn lại (ngày)','Số lần dùng','Cảnh báo'];
-            const rows = result.keys.map(k => [k.key,k.keyType,k.binding || (k.keyType === 'shared' ? 'student' : 'device'),k.studentId || '',k.deviceId || '',k.revoked ? 'Đã thu hồi' : (k.boundAt ? 'Đã kích hoạt' : 'Chưa kích hoạt'),k.boundAt || '',k.expiresAt || 'Vĩnh viễn',k.expiresAt ? Math.max(0,Math.ceil((new Date(k.expiresAt)-Date.now())/86400000)) : '∞',k.usageCount || 0,k.violation || '']);
+            const rows = result.keys.map(k => [k.key,k.keyType,k.binding || (k.keyType === 'shared' ? 'shared' : 'device'),k.studentId || '',k.deviceId || '',k.revoked ? 'Đã thu hồi' : (k.boundAt ? 'Đã kích hoạt' : 'Chưa kích hoạt'),k.boundAt || '',k.expiresAt || 'Vĩnh viễn',k.expiresAt ? Math.max(0,Math.ceil((new Date(k.expiresAt)-Date.now())/86400000)) : '∞',k.usageCount || 0,k.violation || '']);
             const csv = '\ufeff' + [headers,...rows].map(row => row.map(v => '"'+String(v ?? '').replace(/"/g,'""')+'"').join(',')).join('\r\n');
             const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})); link.download = 'danh-sach-key.csv'; link.click(); URL.revokeObjectURL(link.href);
         }
