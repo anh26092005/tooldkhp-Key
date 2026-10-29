@@ -9,4 +9,4 @@ run_worker_first = ["/api/*"]
 
 [[kv_namespaces]]
 binding = "DKHP_KEYS"
-id = "4035f57266b14eb9ba5a18909ff664cb"
+id = "30e6d01128484046ab2f16927fc971d2"
