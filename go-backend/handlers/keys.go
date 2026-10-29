@@ -212,7 +212,7 @@ func PostValidateKey(c *gin.Context) {
 	// regular bind theo thiết bị hoặc MSSV được chọn lúc tạo.
 	binding := keyData.Binding
 	if keyData.KeyType == "shared" {
-		binding = "student"
+		binding = "shared"
 	}
 	if binding == "" {
 		binding = "device"
@@ -226,7 +226,7 @@ func PostValidateKey(c *gin.Context) {
 		keyData.ExpiresAt = calculateExpiration(keyData.Duration)
 		if binding == "student" {
 			keyData.StudentID = studentID
-		} else {
+		} else if binding == "device" {
 			keyData.DeviceID = &clientDeviceID
 		}
 	}
@@ -238,7 +238,7 @@ func PostValidateKey(c *gin.Context) {
 			return
 		}
 	}
-	if keyData.BoundAt != nil && ((binding == "student" && keyData.StudentID != studentID) || (binding != "student" && keyData.DeviceID != nil && *keyData.DeviceID != clientDeviceID)) {
+	if keyData.BoundAt != nil && ((binding == "student" && keyData.StudentID != studentID) || (binding == "device" && keyData.DeviceID != nil && *keyData.DeviceID != clientDeviceID)) {
 		keyData.Revoked = true
 		keyData.Violation = fmt.Sprintf("Key %s: đã kích hoạt bởi %s, phát hiện sử dụng bởi %s lúc %s", rawKey, firstNonEmpty(keyData.StudentID, deref(keyData.DeviceID)), firstNonEmpty(studentID, clientDeviceID), now)
 		allKeys[rawKey] = keyData

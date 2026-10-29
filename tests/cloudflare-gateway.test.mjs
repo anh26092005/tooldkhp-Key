@@ -20,8 +20,9 @@ test('gateway forwards allowed request and preserves UTF-8 response', async () =
         return new Response(JSON.stringify({ success: true, message: 'Đăng ký thành công' }), { status: 200 });
     };
     try {
-        const request = gatewayRequest({ method: 'GET', endpoint: '/dkhp/test?id=1', token: 'example' });
-        const response = await onRequest({ request, params: { path: ['gateway'] }, env: {} });
+        const request = gatewayRequest({ method: 'GET', endpoint: '/dkhp/test?id=1', token: 'example', key: 'VALID', studentId: 'S1' });
+        const env = { DKHP_KEYS: { get: async key => key === 'VALID' ? JSON.stringify({ keyType: 'shared' }) : null } };
+        const response = await onRequest({ request, params: { path: ['gateway'] }, env });
         const body = await response.json();
         assert.equal(JSON.parse(Buffer.from(body.r, 'base64').toString('utf8')).message, 'Đăng ký thành công');
     } finally {

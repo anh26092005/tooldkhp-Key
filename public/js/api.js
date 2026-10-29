@@ -79,6 +79,7 @@ class ApiClient {
 
                 const data = await response.json();
                 if (data && data.success && data.token) {
+                    localStorage.setItem('dkhp_student_id', creds.username);
                     this.token = data.token;
                     localStorage.setItem('dkhp_token', this.token);
                     if (data.studentInfo) {
@@ -140,7 +141,9 @@ class ApiClient {
                 method,
                 endpoint,
                 data,
-                token: this.token
+                token: this.token,
+                key: this.getAccessKey(),
+                studentId: this.studentInfo?.maSinhVien || localStorage.getItem('dkhp_student_id') || ''
             };
             requestBody = JSON.stringify({ p: this._encodePayload(payload) });
         } else if (data && (method === 'POST' || method === 'PUT')) {
@@ -161,8 +164,9 @@ class ApiClient {
 
             // A desktop license session can expire or disappear after restart.
             if (response.status === 403 && this.licenseRequired && !isRetry) {
-                const keyResult = await this.validateKey(this.getAccessKey());
+                const keyResult = await this.validateKey(this.getAccessKey(), this.studentInfo?.maSinhVien || '');
                 if (keyResult.allowed) return await this.request(method, endpoint, data, true);
+                this.clearSession();
                 return { success: false, message: keyResult.message || 'Vui lòng kích hoạt key' };
             }
 
@@ -292,6 +296,7 @@ class ApiClient {
         const loginResult = await this.request('POST', '/user/login', { username, password, key: this.getAccessKey(), deviceId: this.getDeviceId() });
 
         if (loginResult.success && loginResult.token) {
+            localStorage.setItem('dkhp_student_id', username);
             this.token = loginResult.token;
             localStorage.setItem('dkhp_token', this.token);
 
@@ -346,6 +351,9 @@ class ApiClient {
         this.studentInfo = null;
         localStorage.removeItem('dkhp_token');
         localStorage.removeItem('dkhp_student');
+        localStorage.removeItem('dkhp_student_id');
+        localStorage.removeItem('dkhp_access_key');
+        localStorage.removeItem('dkhp_credentials');
         window.location.href = '/';
     }
 
