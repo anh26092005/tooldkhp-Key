@@ -185,6 +185,7 @@ func PostValidateKey(c *gin.Context) {
 
 	rawKey := strings.TrimSpace(strings.ToUpper(req.Key))
 	clientDeviceID := req.DeviceID
+	studentID := strings.TrimSpace(req.StudentID)
 	if clientDeviceID == "" {
 		clientDeviceID = getMachineID()
 	}
@@ -200,89 +201,72 @@ func PostValidateKey(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"allowed": false, "message": "Key không hợp lệ"})
 		return
 	}
+	if keyData.Revoked {
+		c.JSON(http.StatusOK, gin.H{"allowed": false, "message": "Key đã bị thu hồi"})
+		return
+	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	// Shared key
+	// Tất cả key đều được kích hoạt/bind lần đầu; shared bind theo MSSV,
+	// regular bind theo thiết bị hoặc MSSV được chọn lúc tạo.
+	binding := keyData.Binding
 	if keyData.KeyType == "shared" {
-		if keyData.BoundAt == nil {
-			keyData.BoundAt = &now
-			keyData.ExpiresAt = calculateExpiration(keyData.Duration)
-		}
-
-		if keyData.ExpiresAt != nil {
-			expiresTime, _ := time.Parse(time.RFC3339, *keyData.ExpiresAt)
-			if time.Now().After(expiresTime) {
-				c.JSON(http.StatusOK, gin.H{"allowed": false, "message": "Key bản quyền đã hết hạn"})
-				return
-			}
-		}
-
-		keyData.UsageCount++
-		keyData.LastUsed = now
-		allKeys[rawKey] = keyData
-		saveKeysToFile(allKeys)
-
-		c.JSON(http.StatusOK, gin.H{
-			"allowed":   true,
-			"keyType":   "shared",
-			"duration":  keyData.Duration,
-			"expiresAt": keyData.ExpiresAt,
-			"message":   "Kích hoạt thành công (Key dùng chung)",
-		})
+		binding = "student"
+	}
+	if binding == "" {
+		binding = "device"
+	}
+	if binding == "student" && studentID == "" {
+		c.JSON(http.StatusOK, gin.H{"allowed": false, "message": "Thiếu MSSV để kích hoạt key"})
 		return
 	}
+	if keyData.BoundAt == nil {
+		keyData.BoundAt = &now
+		keyData.ExpiresAt = calculateExpiration(keyData.Duration)
+		if binding == "student" {
+			keyData.StudentID = studentID
+		} else {
+			keyData.DeviceID = &clientDeviceID
+		}
+	}
 
-	// Regular key (device binding)
 	if keyData.ExpiresAt != nil {
 		expiresTime, _ := time.Parse(time.RFC3339, *keyData.ExpiresAt)
 		if time.Now().After(expiresTime) {
-			c.JSON(http.StatusOK, gin.H{"allowed": false, "message": "Key bản quyền đã hết hạn sử dụng"})
+			c.JSON(http.StatusOK, gin.H{"allowed": false, "message": "Key bản quyền đã hết hạn"})
 			return
 		}
 	}
-
-	if keyData.DeviceID == nil {
-		// First bind
-		keyData.DeviceID = &clientDeviceID
-		keyData.BoundAt = &now
-		keyData.ExpiresAt = calculateExpiration(keyData.Duration)
-		keyData.UsageCount = 1
-		keyData.LastUsed = now
+	if keyData.BoundAt != nil && ((binding == "student" && keyData.StudentID != studentID) || (binding != "student" && keyData.DeviceID != nil && *keyData.DeviceID != clientDeviceID)) {
+		keyData.Revoked = true
+		keyData.Violation = fmt.Sprintf("Key %s: đã kích hoạt bởi %s, phát hiện sử dụng bởi %s lúc %s", rawKey, firstNonEmpty(keyData.StudentID, deref(keyData.DeviceID)), firstNonEmpty(studentID, clientDeviceID), now)
 		allKeys[rawKey] = keyData
 		saveKeysToFile(allKeys)
-
-		c.JSON(http.StatusOK, gin.H{
-			"allowed":    true,
-			"keyType":    "regular",
-			"newBinding": true,
-			"duration":   keyData.Duration,
-			"expiresAt":  keyData.ExpiresAt,
-			"message":    "Kích hoạt thành công (Đã liên kết với thiết bị này)",
-		})
+		c.JSON(http.StatusOK, gin.H{"allowed": false, "revoked": true, "message": "Phát hiện key được dùng bởi tài khoản khác. Key đã bị thu hồi và admin đã được thông báo."})
 		return
 	}
-
-	if *keyData.DeviceID != clientDeviceID {
-		c.JSON(http.StatusOK, gin.H{
-			"allowed": false,
-			"message": "Key này đã được liên kết với một thiết bị khác! Vui lòng liên hệ Admin để reset.",
-		})
-		return
-	}
-
 	keyData.UsageCount++
 	keyData.LastUsed = now
 	allKeys[rawKey] = keyData
 	saveKeysToFile(allKeys)
 
-	c.JSON(http.StatusOK, gin.H{
-		"allowed":   true,
-		"keyType":   "regular",
-		"duration":  keyData.Duration,
-		"expiresAt": keyData.ExpiresAt,
-		"message":   "Key hợp lệ",
-	})
+	c.JSON(http.StatusOK, gin.H{"allowed": true, "keyType": keyData.KeyType, "duration": keyData.Duration, "expiresAt": keyData.ExpiresAt, "message": "Key hợp lệ"})
+}
+
+func deref(v *string) string {
+	if v == nil {
+		return ""
+	}
+	return *v
+}
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return "unknown"
 }
 
 // PostAdminLogin đăng nhập admin
@@ -334,47 +318,71 @@ func PostAdminGenerateKey(c *gin.Context) {
 	if req.Duration == "" {
 		req.Duration = "7days"
 	}
+	if req.Count < 1 {
+		req.Count = 1
+	}
+	if req.Count > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Mỗi lần chỉ tạo tối đa 500 key"})
+		return
+	}
+	if req.Binding != "student" && req.Binding != "device" {
+		req.Binding = "device"
+	}
+	if req.KeyType == "shared" {
+		req.Binding = "student"
+	}
 
 	allKeys := readKeysFromFile()
-
-	var newKey string
-	if req.CustomKey != "" {
-		newKey = strings.TrimSpace(strings.ToUpper(req.CustomKey))
-		if _, exists := allKeys[newKey]; exists {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Mã Key này đã tồn tại, vui lòng chọn tên khác"})
-			return
-		}
-	} else {
-		chars := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-		for attempts := 0; attempts < 20; attempts++ {
-			newKey = "DKHP-" + randomString(chars, 4) + "-" + randomString(chars, 4)
-			if _, exists := allKeys[newKey]; !exists {
-				break
+	created := make([]models.KeyData, 0, req.Count)
+	if req.CustomKey != "" && req.Count > 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Không dùng tên tùy chỉnh khi tạo nhiều key"})
+		return
+	}
+	for i := 0; i < req.Count; i++ {
+		var newKey string
+		if req.CustomKey != "" {
+			newKey = strings.TrimSpace(strings.ToUpper(req.CustomKey))
+			if _, exists := allKeys[newKey]; exists {
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": "Mã Key này đã tồn tại, vui lòng chọn tên khác"})
+				return
+			}
+		} else {
+			chars := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+			for attempts := 0; attempts < 20; attempts++ {
+				newKey = "DKHP-" + randomString(chars, 4) + "-" + randomString(chars, 4)
+				if _, exists := allKeys[newKey]; !exists {
+					break
+				}
+			}
+			if _, exists := allKeys[newKey]; exists {
+				c.JSON(http.StatusOK, gin.H{"success": false, "message": "Không thể sinh mã key ngẫu nhiên duy nhất"})
+				return
 			}
 		}
-		if _, exists := allKeys[newKey]; exists {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": "Không thể sinh mã key ngẫu nhiên duy nhất"})
-			return
+
+		keyData := models.KeyData{
+			Key:        newKey,
+			KeyType:    req.KeyType,
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			Duration:   req.Duration,
+			ExpiresAt:  nil,
+			DeviceID:   nil,
+			UsageCount: 0,
+			Binding:    req.Binding,
 		}
-	}
 
-	keyData := models.KeyData{
-		Key:        newKey,
-		KeyType:    req.KeyType,
-		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
-		Duration:   req.Duration,
-		ExpiresAt:  nil,
-		DeviceID:   nil,
-		UsageCount: 0,
+		allKeys[newKey] = keyData
+		created = append(created, keyData)
 	}
-
-	allKeys[newKey] = keyData
-	saveKeysToFile(allKeys)
+	if !saveKeysToFile(allKeys) {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "Không lưu được key"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"key":     keyData,
-		"message": fmt.Sprintf("Đã tạo key thành công: %s", newKey),
+		"key":     created[0], "keys": created,
+		"message": fmt.Sprintf("Đã tạo thành công %d key", len(created)),
 	})
 }
 

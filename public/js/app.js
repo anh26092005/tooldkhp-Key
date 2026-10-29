@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         licenseAllowed = !api.licenseRequired;
         if (api.licenseRequired) {
             document.getElementById('access-key-group').style.display = '';
-            const keyResult = await api.validateKey(savedKey);
+            const keyResult = await api.validateKey(savedKey, api.studentInfo?.maSinhVien || '');
             licenseAllowed = keyResult.allowed === true;
             if (!licenseAllowed && savedKey) showError(document.getElementById('login-error'), keyResult.message || 'Key không hợp lệ');
         }
@@ -262,7 +262,7 @@ async function handleLogin(e) {
         const accessKeyInput = document.getElementById('access-key-input');
         const accessKey = accessKeyInput ? accessKeyInput.value.trim() : '';
         if (api.licenseRequired) {
-            const keyResult = await api.validateKey(accessKey);
+            const keyResult = await api.validateKey(accessKey, document.getElementById('username-input')?.value.trim() || '');
             if (!keyResult.allowed) {
                 showError(errorEl, keyResult.message || 'Key không hợp lệ');
                 return;

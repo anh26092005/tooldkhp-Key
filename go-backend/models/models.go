@@ -53,16 +53,16 @@ type GatewayResponse struct {
 
 // AutoRegisterRequest là payload bắt đầu đăng ký tự động
 type AutoRegisterRequest struct {
-	ClassIDs     []interface{}  `json:"classIds"`
-	CourseGroups []CourseGroup  `json:"courseGroups,omitempty"`
-	Type         string         `json:"type"`
-	Loop         int            `json:"loop"`
-	Delay        int            `json:"delay"`
-	DelayMax     int            `json:"delayMax"`
-	TargetTime   string         `json:"targetTime,omitempty"`
-	MSSV         string         `json:"mssv,omitempty"`
-	Credentials  *Credentials   `json:"credentials,omitempty"`
-	ProxyURL     string         `json:"proxyUrl,omitempty"` // HTTP/SOCKS5 proxy cho tài khoản này
+	ClassIDs     []interface{} `json:"classIds"`
+	CourseGroups []CourseGroup `json:"courseGroups,omitempty"`
+	Type         string        `json:"type"`
+	Loop         int           `json:"loop"`
+	Delay        int           `json:"delay"`
+	DelayMax     int           `json:"delayMax"`
+	TargetTime   string        `json:"targetTime,omitempty"`
+	MSSV         string        `json:"mssv,omitempty"`
+	Credentials  *Credentials  `json:"credentials,omitempty"`
+	ProxyURL     string        `json:"proxyUrl,omitempty"` // HTTP/SOCKS5 proxy cho tài khoản này
 }
 
 // CourseGroup nhóm các lớp cùng một môn học
@@ -87,26 +87,26 @@ type LogEntry struct {
 
 // AutoRegisterSession là trạng thái của một phiên đăng ký tự động
 type AutoRegisterSession struct {
-	Mu                sync.Mutex    `json:"-"`
-	SessionID         string        `json:"sessionId"`
-	Token             string        `json:"token"`
-	Credentials       *Credentials  `json:"credentials,omitempty"`
-	MSSV              string        `json:"mssv"`
-	Active            bool          `json:"active"`
-	Type              string        `json:"type"`
-	Loop              int           `json:"loop"`
-	Delay             int           `json:"delay"`
-	DelayMax          int           `json:"delayMax"`
-	ClassIDs          []string      `json:"classIds"`
-	CourseGroups      []CourseGroup `json:"courseGroups"`
-	PendingClassIDs   []string      `json:"pendingClassIds"`
-	SuccessfulClassIDs []string     `json:"successfulClassIds"`
-	Logs              []LogEntry    `json:"logs"`
-	AllLogs           []LogEntry    `json:"allLogs"`
-	Status            string        `json:"status"` // waiting, running, finished, stopped
-	Result            interface{}   `json:"result"`
-	CancelFunc        func()        `json:"-"`
-	ProxyURL          string        `json:"proxyUrl,omitempty"`
+	Mu                 sync.Mutex    `json:"-"`
+	SessionID          string        `json:"sessionId"`
+	Token              string        `json:"token"`
+	Credentials        *Credentials  `json:"credentials,omitempty"`
+	MSSV               string        `json:"mssv"`
+	Active             bool          `json:"active"`
+	Type               string        `json:"type"`
+	Loop               int           `json:"loop"`
+	Delay              int           `json:"delay"`
+	DelayMax           int           `json:"delayMax"`
+	ClassIDs           []string      `json:"classIds"`
+	CourseGroups       []CourseGroup `json:"courseGroups"`
+	PendingClassIDs    []string      `json:"pendingClassIds"`
+	SuccessfulClassIDs []string      `json:"successfulClassIds"`
+	Logs               []LogEntry    `json:"logs"`
+	AllLogs            []LogEntry    `json:"allLogs"`
+	Status             string        `json:"status"` // waiting, running, finished, stopped
+	Result             interface{}   `json:"result"`
+	CancelFunc         func()        `json:"-"`
+	ProxyURL           string        `json:"proxyUrl,omitempty"`
 }
 
 // AddLog thêm một dòng log vào session (thread-safe)
@@ -146,13 +146,13 @@ type AutoEventRequest struct {
 
 // AutoEventSession là trạng thái của phiên auto sự kiện
 type AutoEventSession struct {
-	Mu         sync.Mutex `json:"-"`
-	Active     bool       `json:"active"`
-	Logs       []LogEntry `json:"logs"`
-	AllLogs    []LogEntry `json:"allLogs"`
-	Status     string     `json:"status"`
+	Mu         sync.Mutex  `json:"-"`
+	Active     bool        `json:"active"`
+	Logs       []LogEntry  `json:"logs"`
+	AllLogs    []LogEntry  `json:"allLogs"`
+	Status     string      `json:"status"`
 	Result     interface{} `json:"result"`
-	CancelFunc func()     `json:"-"`
+	CancelFunc func()      `json:"-"`
 }
 
 // AddLog thêm log vào event session (thread-safe)
@@ -182,21 +182,26 @@ func (s *AutoEventSession) DrainLogs() []LogEntry {
 
 // KeyData lưu thông tin một license key
 type KeyData struct {
-	Key        string `json:"key"`
-	KeyType    string `json:"keyType"`
-	Duration   string `json:"duration"`
-	CreatedAt  string `json:"createdAt"`
+	Key        string  `json:"key"`
+	KeyType    string  `json:"keyType"`
+	Duration   string  `json:"duration"`
+	CreatedAt  string  `json:"createdAt"`
 	ExpiresAt  *string `json:"expiresAt"`
 	BoundAt    *string `json:"boundAt,omitempty"`
 	DeviceID   *string `json:"deviceId"`
-	UsageCount int    `json:"usageCount"`
-	LastUsed   string `json:"lastUsed,omitempty"`
+	UsageCount int     `json:"usageCount"`
+	LastUsed   string  `json:"lastUsed,omitempty"`
+	Binding    string  `json:"binding,omitempty"`
+	StudentID  string  `json:"studentId,omitempty"`
+	Revoked    bool    `json:"revoked,omitempty"`
+	Violation  string  `json:"violation,omitempty"`
 }
 
 // KeyValidateRequest là payload kiểm tra key
 type KeyValidateRequest struct {
-	Key      string `json:"key"`
-	DeviceID string `json:"deviceId,omitempty"`
+	Key       string `json:"key"`
+	DeviceID  string `json:"deviceId,omitempty"`
+	StudentID string `json:"studentId,omitempty"`
 }
 
 // KeyGenerateRequest là payload tạo key mới
@@ -204,6 +209,8 @@ type KeyGenerateRequest struct {
 	KeyType   string `json:"keyType"`
 	Duration  string `json:"duration"`
 	CustomKey string `json:"customKey,omitempty"`
+	Count     int    `json:"count,omitempty"`
+	Binding   string `json:"binding,omitempty"`
 }
 
 // RegisterClassRequest là payload đăng ký lớp thủ công

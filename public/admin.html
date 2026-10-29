@@ -306,11 +306,14 @@
                             <option value="forever">Vĩnh viễn</option>
                         </select>
                     </div>
+                    <div class="form-group"><label for="key-count">Số lượng</label><input id="key-count" type="number" min="1" max="500" value="1" style="width:90px"></div>
+                    <div class="form-group"><label for="key-binding">Ràng buộc</label><select id="key-binding"><option value="device">Thiết bị</option><option value="student">MSSV</option></select></div>
                     <div class="form-group">
                         <label for="customKey">Tên Key (Tùy chọn)</label>
                         <input type="text" id="customKey" placeholder="Để trống = ngẫu nhiên" style="padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; font-family: inherit; font-size: 0.9rem;">
                     </div>
                     <button class="btn btn-primary" onclick="generateKey()">+ Tạo Key</button>
+                    <button class="btn btn-outline" onclick="exportKeys()">⬇ Xuất Excel</button>
                     <button class="btn btn-ghost" onclick="loadKeys()">🔄 Refresh</button>
                 </div>
             </div>
@@ -322,7 +325,7 @@
                     <table class="key-table">
                         <thead>
                             <tr>
-                                <th>Key</th>
+                                <th>Key</th><th>MSSV</th>
                                 <th>Loại</th>
                                 <th>Trạng thái</th>
                                 <th>Hết hạn</th>
@@ -333,7 +336,7 @@
                         </thead>
                         <tbody id="keys-table-body">
                             <tr>
-                                <td colspan="7" class="empty-state">Đang tải...</td>
+                                <td colspan="8" class="empty-state">Đang tải...</td>
                             </tr>
                         </tbody>
                     </table>
@@ -404,6 +407,7 @@
             dashboard.classList.remove('hidden');
             loadKeys();
             loadStats();
+            if (!window.keyRefreshTimer) window.keyRefreshTimer = setInterval(() => { loadKeys(); loadStats(); }, 15000);
         }
 
         function showError(message) {
@@ -435,6 +439,10 @@
             try {
                 const result = await apiCall('GET', '/admin/keys');
                 if (result.success) {
+                    const revoked = result.keys.filter(key => key.revoked && key.violation);
+                    const previous = Number(sessionStorage.getItem('revokedKeyCount') || 0);
+                    if (revoked.length > previous) showToast(`⚠ Phát hiện ${revoked.length - previous} key bị thu hồi do dùng sai tài khoản`, 'error');
+                    sessionStorage.setItem('revokedKeyCount', String(revoked.length));
                     renderTable(result.keys);
                 }
             } catch (error) {
@@ -449,7 +457,7 @@
                     document.getElementById('stat-total').textContent = result.stats.total;
                     document.getElementById('stat-regular').textContent = result.stats.activeRegular;
                     document.getElementById('stat-shared').textContent = result.stats.activeShared;
-                    document.getElementById('stat-bound').textContent = result.stats.boundKeys;
+                    document.getElementById('stat-bound').textContent = result.stats.bound;
                     document.getElementById('stat-used').textContent = result.stats.usedToday;
                 }
             } catch (error) {
@@ -461,21 +469,30 @@
             const keyType = document.querySelector('input[name="keyType"]:checked').value;
             const duration = document.getElementById('duration').value;
             const customKey = document.getElementById('customKey').value;
+            const count = Number(document.getElementById('key-count').value || 1);
+            const binding = document.getElementById('key-binding').value;
 
-            const result = await apiCall('POST', '/admin/keys/generate', { keyType, duration, customKey });
+            const result = await apiCall('POST', '/admin/keys/generate', { keyType, duration, customKey, count, binding });
 
             if (result.success) {
                 showToast(result.message, 'success');
                 // Auto copy to clipboard
-                if (result.key) {
-                    copyToClipboard(result.key.key);
-                }
+                if (result.keys) copyToClipboard(result.keys.map(item => item.key).join('\n'));
                 document.getElementById('customKey').value = '';
                 loadKeys();
                 loadStats();
             } else {
                 showToast(result.message, 'error');
             }
+        }
+
+        async function exportKeys() {
+            const result = await apiCall('GET', '/admin/keys');
+            if (!result.success) return showToast(result.message || 'Không thể tải key', 'error');
+            const headers = ['Key','Loại','Ràng buộc','MSSV','Thiết bị','Trạng thái','Kích hoạt lúc','Hết hạn','Còn lại (ngày)','Số lần dùng','Cảnh báo'];
+            const rows = result.keys.map(k => [k.key,k.keyType,k.binding || (k.keyType === 'shared' ? 'student' : 'device'),k.studentId || '',k.deviceId || '',k.revoked ? 'Đã thu hồi' : (k.boundAt ? 'Đã kích hoạt' : 'Chưa kích hoạt'),k.boundAt || '',k.expiresAt || 'Vĩnh viễn',k.expiresAt ? Math.max(0,Math.ceil((new Date(k.expiresAt)-Date.now())/86400000)) : '∞',k.usageCount || 0,k.violation || '']);
+            const csv = '\ufeff' + [headers,...rows].map(row => row.map(v => '"'+String(v ?? '').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+            const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})); link.download = 'danh-sach-key.csv'; link.click(); URL.revokeObjectURL(link.href);
         }
 
         async function deleteKey(key) {
@@ -527,19 +544,20 @@
             const now = new Date();
 
             if (list.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Chưa có key nào. Tạo ở trên!</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="empty-state">Chưa có key nào. Tạo ở trên!</td></tr>';
                 return;
             }
 
             tbody.innerHTML = list.map(item => {
                 const isExpired = item.expiresAt && new Date(item.expiresAt) < now;
-                const isBound = item.keyType === 'regular' && item.deviceId;
+                const isBound = item.boundAt;
 
                 let statusClass = 'active';
                 let statusText = 'Active';
                 if (isExpired) {
                     statusClass = 'expired';
                     statusText = 'Hết hạn';
+                } else if (item.revoked) { statusClass='expired'; statusText='Đã thu hồi';
                 } else if (isBound) {
                     statusClass = 'bound';
                     statusText = 'Đã bind';
@@ -548,6 +566,7 @@
                 return `
                     <tr>
                         <td class="key-code" onclick="copyToClipboard('${item.key}')" title="Click để copy">${item.key}</td>
+                        <td>${escapeHtml(item.studentId || (item.violation ? `⚠ ${item.violation}` : '--'))}</td>
                         <td><span class="key-type ${item.keyType}">${item.keyType === 'shared' ? 'Chung' : 'Thường'}</span></td>
                         <td><span class="key-status ${statusClass}">${statusText}</span></td>
                         <td class="time-cell">${item.expiresAt ? formatTime(item.expiresAt) : '∞'}</td>
@@ -560,6 +579,10 @@
                     </tr>
                 `;
             }).join('');
+        }
+
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
         }
 
         function formatTime(isoString) {

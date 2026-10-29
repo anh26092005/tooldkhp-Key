@@ -25,7 +25,42 @@ export async function onRequest(context) {
     }
 
     if (pathStr === 'license/config') {
-        return jsonResponse({ required: false });
+        return jsonResponse({ required: true });
+    }
+
+    if (pathStr === 'user/login' && request.method === 'POST') {
+        let body = {};
+        try { body = await request.json(); } catch (_) { }
+        if (!body.key || !body.username || !body.password) return jsonResponse({ success: false, message: 'Vui lòng nhập MSSV, mật khẩu và key kích hoạt' }, 400);
+        const key = String(body.key).trim().toUpperCase();
+        const stored = await env.DKHP_KEYS.get(key);
+        if (!stored) return jsonResponse({ success: false, message: 'Key không tồn tại' }, 403);
+        const license = JSON.parse(stored);
+        if (license.revoked) return jsonResponse({ success: false, message: 'Key đã bị thu hồi' }, 403);
+        const binding = license.keyType === 'shared' ? 'student' : (license.binding || 'device');
+        if (binding === 'student' && license.studentId && license.studentId !== body.username) {
+            license.revoked = true;
+            license.violation = `Kích hoạt bởi MSSV ${license.studentId}; phát hiện đăng nhập bởi MSSV ${body.username} lúc ${new Date().toISOString()}`;
+            await env.DKHP_KEYS.put(key, JSON.stringify(license));
+            return jsonResponse({ success: false, message: 'Phát hiện key dùng bởi MSSV khác. Key đã bị thu hồi và admin đã được thông báo.' }, 403);
+        }
+        if (binding !== 'student' && license.deviceId && license.deviceId !== body.deviceId) {
+            license.revoked = true;
+            license.violation = `Phát hiện thiết bị khác dùng key lúc ${new Date().toISOString()}`;
+            await env.DKHP_KEYS.put(key, JSON.stringify(license));
+            return jsonResponse({ success: false, message: 'Phát hiện key dùng trên thiết bị khác. Key đã bị thu hồi và admin đã được thông báo.' }, 403);
+        }
+        if (license.expiresAt && new Date(license.expiresAt) < new Date()) return jsonResponse({ success: false, message: 'Key đã hết hạn' }, 403);
+        if (!license.boundAt) {
+            license.boundAt = new Date().toISOString();
+            const days = { '1day': 1, '7days': 7, '30days': 30 }[license.duration];
+            license.expiresAt = days ? new Date(Date.now() + days * 86400000).toISOString() : null;
+            if (binding === 'student') license.studentId = body.username;
+            else license.deviceId = body.deviceId;
+            await env.DKHP_KEYS.put(key, JSON.stringify(license));
+        }
+        const upstream = await fetch(`${targetBaseUrl}/user/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Origin': 'https://portal.ut.edu.vn', 'Referer': 'https://portal.ut.edu.vn/' }, body: JSON.stringify({ username: body.username, password: body.password }) });
+        return new Response(await upstream.text(), { status: upstream.status, headers: { 'Content-Type': 'application/json' } });
     }
 
     // The browser sends Portal calls as a base64-wrapped gateway payload.
@@ -82,6 +117,7 @@ export async function onRequest(context) {
         try { body = await request.json(); } catch (e) { }
         const key = (body.key || '').trim().toUpperCase();
         const deviceId = body.deviceId;
+        const studentId = String(body.studentId || '').trim();
 
         if (!key) return jsonResponse({ allowed: false, message: 'Vui lòng nhập key' });
 
@@ -92,6 +128,7 @@ export async function onRequest(context) {
         }
 
         const keyData = JSON.parse(keyDataStr);
+        if (keyData.revoked) return jsonResponse({ allowed: false, message: 'Key đã bị thu hồi' });
 
         // Calculate expiresAt if it's the first time and duration is set
         const calculateExpiration = (data) => {
@@ -104,51 +141,32 @@ export async function onRequest(context) {
             return data.expiresAt;
         };
 
-        // Shared key: Allow & Update stats
-        if (keyData.keyType === 'shared') {
-            if (!keyData.boundAt) {
-                keyData.boundAt = new Date().toISOString();
-                keyData.expiresAt = calculateExpiration(keyData);
-            }
-            
-            // Check expiration
-            if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
-                return jsonResponse({ allowed: false, message: 'Key đã hết hạn' });
-            }
-
-            keyData.usageCount = (keyData.usageCount || 0) + 1;
-            keyData.lastUsed = new Date().toISOString();
-            // Update KV (background)
-            context.waitUntil(env.DKHP_KEYS.put(key, JSON.stringify(keyData)));
-            return jsonResponse({ allowed: true, keyType: 'shared' });
-        }
+        const binding = keyData.keyType === 'shared' ? 'student' : (keyData.binding || 'device');
+        if (binding === 'student' && !studentId) return jsonResponse({ allowed: false, message: 'Vui lòng nhập MSSV để kích hoạt key' });
 
         // Check expiration for regular keys (if already bound and expired)
         if (keyData.expiresAt && new Date(keyData.expiresAt) < new Date()) {
             return jsonResponse({ allowed: false, message: 'Key đã hết hạn' });
         }
 
-        // Regular key: Check Device Binding
-        if (!deviceId) return jsonResponse({ allowed: false, message: 'Thiếu Device ID' });
-
-        if (!keyData.deviceId) {
-            // First bind: Set device and calculate expiration from now
-            keyData.deviceId = deviceId;
+        if (binding !== 'student' && !deviceId) return jsonResponse({ allowed: false, message: 'Thiếu Device ID' });
+        if (!keyData.boundAt) {
             keyData.boundAt = new Date().toISOString();
             keyData.expiresAt = calculateExpiration(keyData);
-            keyData.usageCount = 1;
-            keyData.lastUsed = new Date().toISOString();
-            await env.DKHP_KEYS.put(key, JSON.stringify(keyData));
-            return jsonResponse({ allowed: true, keyType: 'regular', newBinding: true });
-        } else if (keyData.deviceId !== deviceId) {
-            return jsonResponse({ allowed: false, message: 'Key đã dùng trên thiết bị khác' });
-        } else {
-            // Valid device
-            keyData.usageCount = (keyData.usageCount || 0) + 1;
-            keyData.lastUsed = new Date().toISOString();
-            context.waitUntil(env.DKHP_KEYS.put(key, JSON.stringify(keyData)));
-            return jsonResponse({ allowed: true, keyType: 'regular' });
+            if (binding === 'student') keyData.studentId = studentId;
+            else keyData.deviceId = deviceId;
         }
+        const mismatch = binding === 'student' ? keyData.studentId !== studentId : keyData.deviceId !== deviceId;
+        if (mismatch) {
+            keyData.revoked = true;
+            keyData.violation = `Kích hoạt bởi ${keyData.studentId || keyData.deviceId || 'không rõ'}; phát hiện ${studentId || deviceId} lúc ${new Date().toISOString()}`;
+            await env.DKHP_KEYS.put(key, JSON.stringify(keyData));
+            return jsonResponse({ allowed: false, revoked: true, message: 'Phát hiện dùng key trên tài khoản khác. Key đã bị thu hồi, admin đã được thông báo.' });
+        }
+        keyData.usageCount = (keyData.usageCount || 0) + 1;
+        keyData.lastUsed = new Date().toISOString();
+        await env.DKHP_KEYS.put(key, JSON.stringify(keyData));
+        return jsonResponse({ allowed: true, keyType: keyData.keyType, expiresAt: keyData.expiresAt });
     }
 
     // 2. Admin Login
@@ -169,8 +187,12 @@ export async function onRequest(context) {
 
         let body = {};
         try { body = await request.json(); } catch (e) { }
-        const { keyType = 'regular', duration = '7days', customKey } = body;
+        const { keyType = 'regular', duration = '7days', customKey, binding = 'device' } = body;
+        const count = Math.min(500, Math.max(1, Number.parseInt(body.count, 10) || 1));
+        if (customKey && count > 1) return jsonResponse({ success: false, message: 'Không dùng tên tự đặt khi tạo nhiều key' }, 400);
 
+        const created = [];
+        for (let i = 0; i < count; i++) {
         let newKey;
         if (customKey && customKey.trim() !== '') {
             newKey = customKey.trim().toUpperCase();
@@ -202,6 +224,7 @@ export async function onRequest(context) {
         const keyData = {
             key: newKey,
             keyType,
+            binding: keyType === 'shared' ? 'student' : (binding === 'student' ? 'student' : 'device'),
             createdAt: now.toISOString(),
             duration,
             expiresAt: null, // Calculated on first activation
@@ -210,7 +233,9 @@ export async function onRequest(context) {
         };
 
         await env.DKHP_KEYS.put(newKey, JSON.stringify(keyData));
-        return jsonResponse({ success: true, key: keyData, message: `Đã tạo key: ${newKey}` });
+        created.push(keyData);
+        }
+        return jsonResponse({ success: true, key: created[0], keys: created, message: `Đã tạo thành công ${created.length} key` });
     }
 
     // 4. Admin: List Keys

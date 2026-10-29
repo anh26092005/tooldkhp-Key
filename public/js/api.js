@@ -66,7 +66,9 @@ class ApiClient {
                     credentials: 'include',
                     body: JSON.stringify({
                         username: creds.username,
-                        password: creds.password
+                        password: creds.password,
+                        key: this.getAccessKey(),
+                        deviceId: this.getDeviceId()
                     })
                 });
 
@@ -265,12 +267,12 @@ class ApiClient {
         }
     }
 
-    async validateKey(key) {
+    async validateKey(key, studentId = '') {
         if (!this.licenseRequired) return { allowed: true };
         try {
             const response = await fetch('/api/license/validate', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                credentials: 'include', body: JSON.stringify({ key })
+                credentials: 'include', body: JSON.stringify({ key, studentId, deviceId: this.getDeviceId() })
             });
             return await response.json();
         } catch (_) {
@@ -287,7 +289,7 @@ class ApiClient {
         }
 
         // Login to Portal (via Proxy)
-        const loginResult = await this.request('POST', '/user/login', { username, password });
+        const loginResult = await this.request('POST', '/user/login', { username, password, key: this.getAccessKey(), deviceId: this.getDeviceId() });
 
         if (loginResult.success && loginResult.token) {
             this.token = loginResult.token;
