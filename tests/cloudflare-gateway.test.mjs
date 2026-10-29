@@ -63,3 +63,15 @@ test('login validates the bound student key and sends browser-like Portal header
         globalThis.fetch = originalFetch;
     }
 });
+
+test('browser license endpoint validates a key in KV instead of forwarding to Portal', async () => {
+    const saved = new Map([['KEY', JSON.stringify({ key: 'KEY', keyType: 'regular', binding: 'student', duration: '7days', expiresAt: null })]]);
+    const env = { DKHP_KEYS: { get: async key => saved.get(key), put: async (key, value) => saved.set(key, value) } };
+    const request = new Request('https://example.pages.dev/api/license/validate', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: 'KEY', studentId: 'SV001' })
+    });
+    const response = await onRequest({ request, params: { path: ['license', 'validate'] }, env });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).allowed, true);
+    assert.equal(JSON.parse(saved.get('KEY')).studentId, 'SV001');
+});

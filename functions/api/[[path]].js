@@ -7,7 +7,9 @@ export async function onRequest(context) {
 
     // Construct the target URL
     const path = params.path;
-    const pathStr = Array.isArray(path) ? path.join('/') : path;
+    let pathStr = Array.isArray(path) ? path.join('/') : path;
+    // The browser and desktop client use this endpoint for license validation.
+    if (pathStr === 'license/validate' && request.method === 'POST') pathStr = 'keys/validate';
 
     // ==================== KV & Admin Logic ====================
 
