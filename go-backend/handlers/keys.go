@@ -327,8 +327,8 @@ func PostAdminGenerateKey(c *gin.Context) {
 	}
 	if req.KeyType == "shared" {
 		req.Binding = "shared"
-	} else if req.Binding != "student" && req.Binding != "device" {
-		req.Binding = "device"
+	} else {
+		req.Binding = "student"
 	}
 
 	allKeys := readKeysFromFile()

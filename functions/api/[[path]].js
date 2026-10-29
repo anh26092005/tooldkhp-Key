@@ -212,7 +212,7 @@ export async function onRequest(context) {
 
         let body = {};
         try { body = await request.json(); } catch (e) { }
-        const { keyType = 'regular', duration = '7days', customKey, binding = 'device' } = body;
+        const { keyType = 'regular', duration = '7days', customKey } = body;
         const count = Math.min(500, Math.max(1, Number.parseInt(body.count, 10) || 1));
         if (customKey && count > 1) return jsonResponse({ success: false, message: 'Không dùng tên tự đặt khi tạo nhiều key' }, 400);
 
@@ -249,7 +249,7 @@ export async function onRequest(context) {
         const keyData = {
             key: newKey,
             keyType,
-            binding: keyType === 'shared' ? 'shared' : (binding === 'student' ? 'student' : 'device'),
+            binding: keyType === 'shared' ? 'shared' : 'student',
             createdAt: now.toISOString(),
             duration,
             expiresAt: null, // Calculated on first activation
