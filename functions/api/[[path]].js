@@ -59,7 +59,19 @@ export async function onRequest(context) {
             else if (binding === 'device') license.deviceId = body.deviceId;
             await env.DKHP_KEYS.put(key, JSON.stringify(license));
         }
-        const upstream = await fetch(`${targetBaseUrl}/user/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Origin': 'https://portal.ut.edu.vn', 'Referer': 'https://portal.ut.edu.vn/' }, body: JSON.stringify({ username: body.username, password: body.password }) });
+        const upstream = await fetch(`${targetBaseUrl}/user/login`, {
+            method: 'POST',
+            redirect: 'manual',
+            headers: {
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Content-Type': 'application/json',
+                'Origin': 'https://portal.ut.edu.vn',
+                'Referer': 'https://portal.ut.edu.vn/',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            },
+            body: JSON.stringify({ username: body.username, password: body.password })
+        });
         return new Response(await upstream.text(), { status: upstream.status, headers: { 'Content-Type': 'application/json' } });
     }
 

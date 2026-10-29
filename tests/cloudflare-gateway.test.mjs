@@ -40,3 +40,26 @@ test('gateway rejects invalid paths and malformed bodies', async () => {
         assert.equal((await onRequest({ request: invalid, params: { path: ['gateway'] }, env: {} })).status, 400);
     }
 });
+
+test('login validates the bound student key and sends browser-like Portal headers', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options) => {
+        assert.equal(url, 'https://portal.ut.edu.vn/api/v1/user/login');
+        assert.match(options.headers['User-Agent'], /Chrome/);
+        assert.equal(options.headers['Accept-Language'], 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7');
+        assert.deepEqual(JSON.parse(options.body), { username: 'SV001', password: 'portal-password' });
+        return new Response(JSON.stringify({ success: true, token: 'portal-token' }), { status: 200 });
+    };
+    try {
+        const request = new Request('https://example.pages.dev/api/user/login', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ username: 'SV001', password: 'portal-password', key: 'BOUND', deviceId: 'test-device' })
+        });
+        const env = { DKHP_KEYS: { get: async () => JSON.stringify({ keyType: 'regular', binding: 'student', studentId: 'SV001', boundAt: '2026-10-29T00:00:00Z', expiresAt: null }) } };
+        const response = await onRequest({ request, params: { path: ['user', 'login'] }, env });
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { success: true, token: 'portal-token' });
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
